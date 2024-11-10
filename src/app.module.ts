@@ -10,10 +10,14 @@ import { AuthModule } from './modules/auth/auth.module';
 import { LoggerMiddleware } from './middleware/logger.middleware';
 import { AuthMiddleware } from './middleware/auth.middleware';
 import { CustomerController } from './modules/customer/customer.controller';
+import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      envFilePath: '.env',
+    }),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
