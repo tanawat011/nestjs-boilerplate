@@ -189,6 +189,20 @@ pending migrations when it starts (`bun run migration:run` does it by hand).
   the current access token expires (15 minutes by default). Deactivating an
   account ends its refresh-token session at once.
 
+## Upgrading from the old version
+
+The November 2026 refresh (2.0.0) changes the API. In short:
+
+- Every route is under `/api/v1` (except `/health`); `/user` and `/customer`
+  became `/api/v1/users` and `/api/v1/customers`.
+- Swagger UI moved from `/api` to `/docs`.
+- Every user and customer route needs sign-in with a bearer token; sign-in
+  returns access + refresh tokens instead of using a session.
+- `PATCH` updates and `DELETE` deletes (was `POST /:id/delete`); ids are UUIDs.
+- The schema comes from migrations: start from an empty database.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full list.
+
 ## History
 
 Started in October 2024 on NestJS 10; moved to NestJS 11 in February 2026.
