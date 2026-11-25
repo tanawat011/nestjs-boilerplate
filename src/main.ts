@@ -1,50 +1,18 @@
+import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ValidationPipe } from '@nestjs/common';
-import helmet from 'helmet';
-import * as session from 'express-session';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { AppModule } from './app.module.js';
+import { configureApp } from './app.setup.js';
 
-require('dotenv').config();
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  configureApp(app);
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  // Security
-  app.use(helmet());
-  app.enableCors();
-
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
-  // Swagger
-  const config = new DocumentBuilder()
-    .setTitle('NestJS Boilerplate API')
-    .setDescription('REST API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
-
-  app.use(
-    session({
-      secret: process.env.SESSION_SECRET || 'my-secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: { maxAge: 3600000 },
-    }),
-  );
-
-  const port = process.env.PORT ?? 3000;
+  const port = app.get(ConfigService).get<number>('PORT') ?? 3000;
   await app.listen(port);
-  console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`📚 Swagger docs: http://localhost:${port}/api`);
+  Logger.log(`Listening on port ${port}`, 'Bootstrap');
 }
-bootstrap();
+
+void bootstrap();

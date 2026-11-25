@@ -1,54 +1,75 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { ClassSerializerInterceptor, Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CustomerModule } from './modules/customer/customer.module';
-import { UserController } from './modules/user/user.controller';
-import { UserService } from './modules/user/user.service';
-import { UserModule } from './modules/user/user.module';
-import { AuthModule } from './modules/auth/auth.module';
-import { LoggerMiddleware } from './middleware/logger.middleware';
-import { AuthMiddleware } from './middleware/auth.middleware';
-import { CustomerController } from './modules/customer/customer.controller';
-import { ConfigModule } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
+import { AUTH_THROTTLE_KEY } from './common/decorators/auth-throttle.decorator.js';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
+import { RolesGuard } from './common/guards/roles.guard.js';
+import {
+  validateEnv,
+  type EnvironmentVariables,
+} from './config/env.validation.js';
+import { databaseOptions } from './database/data-source.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { CustomersModule } from './modules/customers/customers.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+import { UsersModule } from './modules/users/users.module.js';
+
+type Config = ConfigService<EnvironmentVariables, true>;
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      envFilePath: '.env',
+      isGlobal: true,
+      cache: true,
+      validate: validateEnv,
     }),
-    JwtModule.register({
-      global: true,
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '60s' },
+    TypeOrmModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: Config) =>
+        databaseOptions({
+          POSTGRES_HOST: config.get('POSTGRES_HOST', { infer: true }),
+          POSTGRES_PORT: config.get('POSTGRES_PORT', { infer: true }),
+          POSTGRES_USERNAME: config.get('POSTGRES_USERNAME', { infer: true }),
+          POSTGRES_PASSWORD: config.get('POSTGRES_PASSWORD', { infer: true }),
+          POSTGRES_DATABASE: config.get('POSTGRES_DATABASE', { infer: true }),
+          POSTGRES_SSL: config.get('POSTGRES_SSL', { infer: true }),
+        }),
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.POSTGRES_HOST || 'localhost',
-      port: Number(process.env.POSTGRES_PORT) || 5432,
-      username: process.env.POSTGRES_USERNAME,
-      password: process.env.POSTGRES_PASSWORD,
-      database: process.env.POSTGRES_DATABASE,
-      entities: [],
-      synchronize: true,
-      autoLoadEntities: true,
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: Config) => ({
+        throttlers: [
+          // Every route (health excepted): THROTTLE_LIMIT per minute per client.
+          {
+            name: 'default',
+            ttl: 60_000,
+            limit: config.get('THROTTLE_LIMIT', { infer: true }),
+          },
+          // Routes marked @AuthThrottle(): AUTH_THROTTLE_LIMIT per minute.
+          {
+            name: 'auth',
+            ttl: 60_000,
+            limit: config.get('AUTH_THROTTLE_LIMIT', { infer: true }),
+            skipIf: (ctx) =>
+              Reflect.getMetadata(AUTH_THROTTLE_KEY, ctx.getHandler()) !== true,
+          },
+        ],
+      }),
     }),
-    CustomerModule,
-    UserModule,
     AuthModule,
+    UsersModule,
+    CustomersModule,
+    HealthModule,
   ],
-  controllers: [AppController, UserController],
-  providers: [AppService, UserService],
+  providers: [
+    // Order matters: rate limit, then authentication, then roles.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    // Honours @Exclude() on entities (password, refresh token hash).
+    { provide: APP_INTERCEPTOR, useClass: ClassSerializerInterceptor },
+  ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(LoggerMiddleware)
-      .forRoutes('{*splat}')
-
-      .apply(AuthMiddleware)
-      .exclude('auth/{*splat}')
-      .forRoutes(CustomerController, UserController);
-  }
-}
+export class AppModule {}

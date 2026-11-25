@@ -55,5 +55,8 @@ pids
 # Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# bun
+# bun: the text lockfile (bun.lock) is committed; the old binary one is not
 bun.lockb
+
+# TypeScript incremental build info
+*.tsbuildinfo
